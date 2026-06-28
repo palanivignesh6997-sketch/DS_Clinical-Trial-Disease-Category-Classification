@@ -1,0 +1,132 @@
+!pip install streamlit -q
+
+!streamlit --version
+
+!wget -q -O - ipv4.icanhazip.com
+
+%%writefile app.py
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import joblib
+import nltk
+import re
+
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+nltk.download("stopwords")
+nltk.download("wordnet")
+
+model = joblib.load("model.pkl")
+vectorizer = joblib.load("vectorizer.pkl")
+label_encoder = joblib.load("label_encoder.pkl")
+
+df = pd.read_csv("clinical_trials_raw_patient2trial_conditions.csv")
+
+stop_words = set(stopwords.words("english"))
+lemmatizer = WordNetLemmatizer()
+
+def clean_text(text):
+
+    text = str(text).lower()
+
+    text = re.sub(r"[^a-zA-Z ]", " ", text)
+
+    words = []
+
+    for word in text.split():
+
+        if word not in stop_words:
+
+            words.append(
+                lemmatizer.lemmatize(word)
+            )
+
+    return " ".join(words)
+
+st.set_page_config(
+    page_title="Clinical Trial Disease Category Classification",
+    layout="wide"
+)
+
+st.title("Clinical Trial Disease Category Classification")
+
+st.header("Disease Prediction")
+
+summary = st.text_area(
+    "Enter Clinical Trial Brief Summary",
+    height=200
+)
+
+if st.button("Predict Disease"):
+
+    if summary.strip() == "":
+        st.warning("Please enter a clinical trial summary.")
+
+    else:
+
+        cleaned = clean_text(summary)
+
+        vector = vectorizer.transform([cleaned])
+
+        prediction = model.predict(vector)
+
+        disease = label_encoder.inverse_transform(prediction)[0]
+
+        st.success(f"Predicted Disease Category : {disease}")
+
+        if hasattr(model, "predict_proba"):
+
+            confidence = max(
+                model.predict_proba(vector)[0]
+            ) * 100
+
+            st.info(
+                f"Confidence Score : {confidence:.2f}%")
+
+st.header("Disease Distribution")
+
+disease_counts = (
+    df["source_condition_query"]
+    .value_counts()
+    .reset_index()
+)
+
+disease_counts.columns = [
+    "Disease",
+    "Count"
+]
+
+fig = px.bar(
+    disease_counts,
+    x="Disease",
+    y="Count",
+    color="Disease"
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
+
+st.header("Clinical Summary Length Distribution")
+
+df["Summary Length"] = (
+    df["brief_summary"]
+    .astype(str)
+    .apply(len)
+)
+
+fig2 = px.histogram(
+    df,
+    x="Summary Length",
+    nbins=40
+)
+
+st.plotly_chart(
+    fig2,
+    use_container_width=True
+)
+
+!streamlit run app.py & npx localtunnel --port 8501
